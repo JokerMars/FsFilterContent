@@ -494,10 +494,8 @@ FLT_POSTOP_CALLBACK_STATUS
 PostCreate(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS FltObjects,
 	_In_opt_ PVOID CompletionContext, _In_ FLT_POST_OPERATION_FLAGS Flags)
 {
-	UNREFERENCED_PARAMETER(CompletionContext);
-	UNREFERENCED_PARAMETER(Flags);
-
 	FLT_POSTOP_CALLBACK_STATUS retVal = FLT_POSTOP_FINISHED_PROCESSING;
+
 	NTSTATUS status;
 
 	if (KeGetCurrentIrql() >= DISPATCH_LEVEL)
@@ -505,7 +503,8 @@ PostCreate(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS FltObject
 		return retVal;
 	}
 
-	//get stream handle context
+
+	//set the stream handle context
 	PSTREAM_HANDLE_CONTEXT newCtx = NULL;
 	status = FltGetStreamHandleContext(FltObjects->Instance, FltObjects->FileObject, (PFLT_CONTEXT *)&newCtx);
 	if (!NT_SUCCESS(status))
@@ -519,7 +518,7 @@ PostCreate(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS FltObject
 		}
 
 		PFLT_CONTEXT oldCtx;
-		status = FltSetStreamContext(FltObjects->Instance, FltObjects->FileObject,
+		status = FltSetStreamHandleContext(FltObjects->Instance, FltObjects->FileObject,
 			FLT_SET_CONTEXT_KEEP_IF_EXISTS, newCtx, &oldCtx);
 		if (oldCtx != NULL)
 		{
@@ -535,58 +534,53 @@ PostCreate(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS FltObject
 	newCtx->isEncryptFileType = FALSE;
 
 
-	//only encrypt file type and secret process go through
+
+	//ONLY encrypt file type and secret process can go through;
 	BOOLEAN isDir;
 	status = FltIsDirectory(FltObjects->FileObject, FltObjects->Instance, &isDir);
-	if (isDir || !NT_SUCCESS(status))
+	if (!NT_SUCCESS(status) || isDir)
 	{
 		return retVal;
 	}
 
-	//get file name 
 	PFLT_FILE_NAME_INFORMATION nameInfo = NULL;
 	status = FltGetFileNameInformation(Data, FLT_FILE_NAME_OPENED | FLT_FILE_NAME_QUERY_ALWAYS_ALLOW_CACHE_LOOKUP, &nameInfo);
 	if (!NT_SUCCESS(status))
 	{
-		DbgPrint("FltGetFileNameInformation error in Post Create");
+		DbgPrint("FltGetFileNameInformation error in PostCreate.");
 		return retVal;
 	}
-
 	status = FltParseFileNameInformation(nameInfo);
 	if (!NT_SUCCESS(status))
 	{
-		DbgPrint("FltParseFileNameInformation error in Post Create");
+		DbgPrint("FltParseFileNameInformation error in PostCreate");
 		return retVal;
 	}
 
 	PFILE_TYPE_PROCESS current;
 	if (!IsInStrategyList(head, &(nameInfo->Name), &current))
 	{
-		DbgPrint("It's not the encrypt file type");
+		DbgPrint("It's not the encrypt file type.");
 		return retVal;
 	}
-	DbgPrint("The encrypt file type name: %wZ", &(nameInfo->Name));
+	DbgPrint("The encrypt file type: %wZ.", &(nameInfo->Name));
 
 	PCHAR procName = GetCurrentProcessName();
 	if (!IsSecretProcess(current, procName))
 	{
-		DbgPrint("It's not the process we care");
+		DbgPrint("It's not the process we are monitoring.");
 		return retVal;
 	}
+
 	DbgPrint("It's the process: %s", procName);
 
-	//set the context;
+	//set the context
 	newCtx->ftp = current;
 	newCtx->isEncrypted = FALSE;
 	newCtx->isEncryptFileType = TRUE;
 
 	status = FltQueryInformationFile(FltObjects->Instance, Data->Iopb->TargetFileObject,
 		&(newCtx->fileInfo), sizeof(FILE_STANDARD_INFORMATION), FileStandardInformation, NULL);
-	if (!NT_SUCCESS(status))
-	{
-		DbgPrint("FltQueryInformationFile error in Post Create");
-		return retVal;
-	}
 
 	if (nameInfo != NULL)
 	{
@@ -630,7 +624,6 @@ PostRead(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS FltObjects,
 	status = FltGetStreamHandleContext(FltObjects->Instance, FltObjects->FileObject, (PFLT_CONTEXT *)&context);
 	if (!NT_SUCCESS(status))
 	{
-		DbgPrint("FltGetStreamHandleContext error in Post Read");
 		return retVal;
 	}
 	if (context == NULL)
@@ -694,7 +687,6 @@ PreWrite(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS FltObjects,
 	status = FltGetStreamHandleContext(FltObjects->Instance, FltObjects->FileObject, (PFLT_CONTEXT *)&context);
 	if (!NT_SUCCESS(status))
 	{
-		DbgPrint("FltGetStreamHandleContext error in PreWrite");
 		return retVal;
 	}
 	if (context == NULL)
@@ -729,7 +721,7 @@ PreWrite(_Inout_ PFLT_CALLBACK_DATA Data, _In_ PCFLT_RELATED_OBJECTS FltObjects,
 		return retVal;
 	}
 
-	DbgPrint("content: %s", buffer);
+	DbgPrint("content: %s", (PCHAR)buffer);
 
 	return retVal;
 }
